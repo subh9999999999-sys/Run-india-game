@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>RUN INDIA! — Kolkata Streets</title>
+<style>
+:root{--ink:#17243b;--gold:#ffd166;--orange:#ff7b35;--teal:#22c1a6}
+*{box-sizing:border-box}body{margin:0;background:#101c31;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden;touch-action:none}
+#game{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hud{position:fixed;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;gap:8px;pointer-events:none}
+.pill{background:#101c31d9;border:1px solid #ffffff2b;border-radius:16px;padding:8px 12px;font-weight:800;box-shadow:0 4px 18px #0004}
+#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:18px;background:linear-gradient(#07132688,#071326d9)}
+.panel{width:min(520px,100%);max-height:90vh;overflow:auto;background:#172943f5;border:1px solid #ffffff2c;border-radius:24px;padding:22px;box-shadow:0 18px 70px #0009}
+h1{font-size:clamp(30px,8vw,48px);line-height:1;margin:0 0 8px;color:var(--gold);letter-spacing:-1px}
+.sub{color:#c7d5e8;margin:0 0 18px}.row{display:flex;gap:9px;flex-wrap:wrap}.btn{border:0;border-radius:14px;padding:12px 16px;font-weight:850;background:var(--gold);color:#17243b;font-size:15px;cursor:pointer}.btn.alt{background:#29415f;color:white;border:1px solid #ffffff30}.btn:disabled{opacity:.4}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0}
+.item{background:#203955;border:1px solid #ffffff25;border-radius:15px;padding:12px;min-width:0}
+.item strong{display:block}.item small{color:#c4d5e8;display:block;line-height:1.35;margin:4px 0 9px}
+.item .btn{padding:8px 10px;font-size:13px;width:100%}
+#help{font-size:13px;color:#b9cbe0;line-height:1.5;margin-top:14px}
+#toast{position:fixed;left:50%;top:72px;transform:translateX(-50%);background:#101c31eF;border:1px solid #ffffff40;padding:9px 15px;border-radius:30px;font-weight:800;opacity:0;transition:opacity .2s;pointer-events:none}
+#touch{position:fixed;bottom:16px;left:0;right:0;display:flex;justify-content:space-between;padding:0 18px;pointer-events:none}
+.touchbtn{pointer-events:auto;width:58px;height:58px;border-radius:50%;border:1px solid #ffffff55;background:#172943aa;color:white;font-size:23px;font-weight:900}
+#pause{position:fixed;right:14px;top:62px}
+.hidden{display:none!important}
+@media(min-width:700px){#touch{opacity:.55}.panel{padding:26px}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud" class="hidden"><div class="pill">⭐ <span id="score">0</span></div><div class="pill">🪙 <span id="coins">0</span></div><div class="pill">🏁 <span id="best">0</span></div></div><div id="mission" class="hidden">🎯 Mission: Collect 20 coins · <span id="missionProgress">0/20</span></div>
+<button id="pause" class="btn alt hidden">Ⅱ</button><button id="sound" class="btn alt hidden" style="position:fixed;right:14px;top:112px">🔊</button><div id="toast"></div>
+<div id="touch" class="hidden"><button class="touchbtn" data-move="left">←</button><div class="row"><button class="touchbtn" data-move="jump">↑</button><button class="touchbtn" data-move="slide">↓</button></div><button class="touchbtn" data-move="right">→</button></div><button id="abilityBtn" class="hidden">✨ USE POWER</button>
+<div id="menu"><div class="panel" id="home">
+<h1>RUN INDIA!</h1><p class="sub">Run through a lively Kolkata-inspired street scene. Watch animated traffic, tram rails, railway gates, a passing local train and a helicopter overhead. Your character has a running animation and rides show beneath their feet.</p>
+<div class="item"><strong>🌏 Your runner: <span id="chosenName">Aarav • India</span></strong><small id="chosenDesc">Kurta look · Coin Magnet ability</small></div>
+<div class="row" style="margin-top:12px"><button class="btn" id="play">▶ PLAY</button><button class="btn alt" id="characters">👕 Characters</button><button class="btn alt" id="shop">🛹 Ride Shop</button></div>
+<div id="help">Swipe left/right to change lanes, swipe up to jump and down to slide. On computer use ← → ↑ ↓. Avoid bikes, cars, yellow taxis, autos, buses, trams, barriers and trains. Jump over railway crossings. A helicopter flies above the city. Collect coins and unlock rides. Sound effects play during the run. Select a character to hear their motivational voice line; spoken voices depend on the languages supported by your device. V6 adds a character power button and a coin mission in every run.</div>
+</div></div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+let W=0,H=0,dpr=1,mode='menu',last=0,score=0,runCoins=0,speed=390,spawn=0,objects=[],particles=[],lane=1,jump=0,slide=0,shield=0,magnet=0,ability=0,toastTimer=0,abilityCooldown=0,abilityKind='',missionTarget=20,missionDone=false,missionReward=40,quickStep=0,doubleCoins=0,longJump=0;
+const $=id=>document.getElementById(id);
+const save=JSON.parse(localStorage.getItem('runIndiaSave')||'{}');
+let bank=save.bank||0,best=save.best||0,ownedChars=save.ownedChars||['india'],ownedRides=save.ownedRides||['none'],charId=save.charId||'india',rideId=save.rideId||'none';
+const chars=[
+{id:'india',name:'Aarav • India',outfit:'Kurta-pajama',ability:'Coin Magnet',desc:'Attracts nearby coins for a short time.',price:0,color:'#e8a04b',accent:'#178a65',symbol:'🇮🇳',lang:'bn-IN',line:'চলো, নিজের স্বপ্নের জন্য দৌড়াই! কখনও হাল ছেড়ো না।',meaning:'Let’s run for our dreams! Never give up.'},
+{id:'japan',name:'Hana • Japan',outfit:'Kimono-inspired outfit',ability:'Quick Step',desc:'A short burst of extra speed and points.',price:450,color:'#e7a1b4',accent:'#a52d54',symbol:'🇯🇵',lang:'ja-JP',line:'夢に向かって走ろう！あきらめないで！',meaning:'Run towards your dreams! Never give up!'},
+{id:'ghana',name:'Kojo • Ghana',outfit:'Kente-inspired outfit',ability:'Coin Bonus',desc:'Earn extra coins for a short time.',price:650,color:'#d99a3d',accent:'#176b48',symbol:'🇬🇭',lang:'ak-GH',line:'Yɛntu mmirika! Mma w’abam mmu da!',meaning:'Let’s keep moving! Never lose hope!'},
+{id:'scotland',name:'Skye • Scotland',outfit:'Tartan-inspired outfit',ability:'Long Jump',desc:'A longer jump window to clear obstacles.',price:800,color:'#8cb8e8',accent:'#b93d4d',symbol:'🏴',lang:'en-GB',line:'Keep your courage high! Every step takes you further!',meaning:'Keep your courage high! Every step takes you further!'},
+{id:'mexico',name:'Luz • Mexico',outfit:'Traditional embroidered outfit',ability:'Lucky Shield',desc:'Starts each run with a brief shield.',price:950,color:'#e9b6a0',accent:'#1b936a',symbol:'🇲🇽',lang:'es-MX',line:'¡Corre hacia tus sueños! ¡Nunca te rindas!',meaning:'Run towards your dreams! Never give up!'},
+{id:'india2',name:'Meera • India',outfit:'Saree-inspired outfit',ability:'Coin Magnet',desc:'Attracts nearby coins for a short time.',price:1100,color:'#bd78b2',accent:'#e6a83f',symbol:'🇮🇳',lang:'bn-IN',line:'নিজের উপর বিশ্বাস রাখো। তুমি পারবে!',meaning:'Believe in yourself. You can do it!'}
+];
+const rides=[
+{id:'none',name:'Runner Mode',desc:'No ride equipped.',price:0,kind:'none',duration:0},
+{id:'shoes',name:'Skate Shoes',desc:'Smooth running; small score bonus.',price:250,kind:'shoes',duration:0},
+{id:'boots',name:'Fast Boots',desc:'Short speed boost when activated.',price:500,kind:'boots',duration:5},
+{id:'board',name:'Skateboard',desc:'Temporary crash protection.',price:750,kind:'board',duration:8},
+{id:'wheel',name:'One-Wheel Cycle',desc:'A stylish temporary safety ride.',price:1100,kind:'wheel',duration:9}
+];
+function persist(){localStorage.setItem('runIndiaSave',JSON.stringify({bank,best,ownedChars,ownedRides,charId,rideId}))}
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+function road(){return {left:W*.17,right:W*.83,width:W*.66}}
+function laneX(n){let r=road();return r.left+r.width*(n+.5)/3}
+let audioCtx=null,soundOn=true;
+function sfx(kind){
+  if(!soundOn)return;
+  try{
+    audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain(),now=audioCtx.currentTime;
+    const settings={coin:[880,.07,'sine'],jump:[420,.13,'triangle'],crash:[110,.22,'sawtooth'],power:[660,.18,'sine'],train:[180,.35,'square'],helicopter:[95,.12,'triangle']};
+    const a=settings[kind]||settings.coin;o.type=a[2];o.frequency.setValueAtTime(a[0],now);
+    if(kind==='jump')o.frequency.exponentialRampToValueAtTime(760,now+.13);
+    if(kind==='crash')o.frequency.exponentialRampToValueAtTime(45,now+.22);
+    g.gain.setValueAtTime(.0001,now);g.gain.exponentialRampToValueAtTime(.10,now+.012);g.gain.exponentialRampToValueAtTime(.0001,now+a[1]);
+    o.connect(g);g.connect(audioCtx.destination);o.start(now);o.stop(now+a[1]+.02);
+  }catch(e){}
+}
+function speakCharacter(c){
+  const text=c.line||c.meaning||'Keep going! You can do it!';
+  $('toast').textContent=c.name+': “'+text+'”';
+  $('toast').style.opacity=1;clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>$('toast').style.opacity=0,4200);
+  if(!soundOn||!('speechSynthesis' in window))return;
+  try{
+    window.speechSynthesis.cancel();
+    const utter=new SpeechSynthesisUtterance(text);
+    utter.lang=c.lang||'en-US';utter.rate=.9;utter.pitch=1.04;utter.volume=1;
+    const voices=window.speechSynthesis.getVoices();
+    const prefix=(c.lang||'en-US').toLowerCase().split('-')[0];
+    const voice=voices.find(v=>v.lang.toLowerCase().startsWith(prefix));
+    if(voice)utter.voice=voice;
+    window.speechSynthesis.speak(utter);
+  }catch(e){}
+}
+function toast(s){$('toast').textContent=s;$('toast').style.opacity=1;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').style.opacity=0,1300)}
+function hud(){ $('score').textContent=Math.floor(score);$('coins').textContent=bank+runCoins;$('best').textContent=best;$('missionProgress').textContent=Math.min(runCoins,missionTarget)+'/'+missionTarget; }
+function showHome(){mode='menu';$('menu').classList.remove('hidden');$('home').classList.remove('hidden');$('hud').classList.add('hidden');$('mission').classList.add('hidden');$('abilityBtn').classList.add('hidden');$('touch').classList.add('hidden');$('pause').classList.add('hidden');$('chosenName').textContent=chars.find(c=>c.id===charId).name;$('chosenDesc').textContent=chars.find(c=>c.id===charId).outfit+' · '+chars.find(c=>c.id===charId).ability}
+function panel(title,subtitle,items,kind){let h=`<h1 style="font-size:34px">${title}</h1><p class="sub">${subtitle}</p><div class="grid">`;for(const it of items){let owned=(kind==='char'?ownedChars:ownedRides).includes(it.id),selected=(kind==='char'?charId:rideId)===it.id;h+=`<div class="item"><strong>${it.symbol||'🛴'} ${it.name}</strong><small>${it.outfit||it.desc}<br>${it.ability?'✨ '+it.ability:''}${kind==='char'&&it.meaning?'<br>🎙 “'+it.meaning+'”':''}</small><button class="btn ${selected?'alt':''}" data-buy="${it.id}" data-kind="${kind}">${selected?'SELECTED':owned?'EQUIP':`🪙 ${it.price} · UNLOCK`}</button></div>`}h+=`</div><button class="btn alt" id="back">← BACK</button>`;$('home').innerHTML=h;$('home').querySelectorAll('[data-buy]').forEach(b=>b.onclick=()=>buy(b.dataset.kind,b.dataset.buy));$('back').onclick=showHome}
+function buy(kind,id){let arr=kind==='char'?chars:rides,ob=kind==='char'?ownedChars:ownedRides,it=arr.find(x=>x.id===id);if(!ob.includes(id)){if(bank<it.price){toast('Not enough coins yet!');return}bank-=it.price;ob.push(id);toast('Unlocked: '+it.name)}if(kind==='char'){charId=id;speakCharacter(it)}else rideId=id;persist();hud();panel(kind==='char'?'WORLD RUNNERS':'RIDE GARAGE',kind==='char'?'Choose a runner and their special ability.':'Spend coins to unlock your ride.',arr,kind)}
+$('characters').onclick=()=>panel('WORLD RUNNERS','Choose a world runner. Select a character to hear their motivational line in their language.',chars,'char');
+$('shop').onclick=()=>panel('RIDE GARAGE','Unlock your favourite way to travel.',rides,'ride');
+$('play').onclick=start;
+function start(){score=0;runCoins=0;speed=390;spawn=.5;objects=[];particles=[];lane=1;jump=slide=0;shield=magnet=ability=0;abilityCooldown=0;quickStep=doubleCoins=longJump=0;missionDone=false;let c=chars.find(x=>x.id===charId);if(c.id==='mexico')shield=2;if(c.id==='india'||c.id==='india2')magnet=3;mode='run';$('menu').classList.add('hidden');$('hud').classList.remove('hidden');$('mission').classList.remove('hidden');$('abilityBtn').classList.remove('hidden');$('touch').classList.remove('hidden');$('pause').classList.remove('hidden');$('sound').classList.remove('hidden');$('abilityBtn').disabled=false;$('abilityBtn').textContent='✨ '+c.ability.toUpperCase();hud();last=performance.now();requestAnimationFrame(loop)}
+function move(m){if(mode!=='run')return;if(m==='left')lane=Math.max(0,lane-1);if(m==='right')lane=Math.min(2,lane+1);if(m==='jump'&&jump<=0&&slide<=0){jump=(chars.find(x=>x.id===charId).id==='scotland'||longJump>0)?1.25:.85;sfx('jump');}if(m==='slide'&&jump<=0)slide=.65}
+document.querySelectorAll('[data-move]').forEach(b=>{b.addEventListener('pointerdown',e=>{e.preventDefault();move(b.dataset.move)})});
+let sx=0,sy=0;canvas.addEventListener('touchstart',e=>{sx=e.changedTouches[0].clientX;sy=e.changedTouches[0].clientY},{passive:true});canvas.addEventListener('touchend',e=>{let dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.max(Math.abs(dx),Math.abs(dy))>24)move(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy<0?'jump':'slide'))},{passive:true});
+addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key)){e.preventDefault();move(({ArrowLeft:'left',ArrowRight:'right',ArrowUp:'jump',ArrowDown:'slide',' ':'jump'})[e.key])}});
+function activateAbility(){
+ if(mode!=='run'||abilityCooldown>0)return;
+ const c=chars.find(x=>x.id===charId);
+ abilityCooldown=18;
+ if(c.id==='india'||c.id==='india2'){magnet=Math.max(magnet,7);abilityKind='MAGNET';}
+ else if(c.id==='japan'){quickStep=5;abilityKind='QUICK STEP';}
+ else if(c.id==='ghana'){doubleCoins=8;abilityKind='DOUBLE COINS';}
+ else if(c.id==='scotland'){longJump=10;abilityKind='LONG JUMP';}
+ else if(c.id==='mexico'){shield=Math.max(shield,7);abilityKind='LUCKY SHIELD';}
+ sfx('power');toast(c.name+' activated '+abilityKind+'!');updateAbilityButton();
+}
+function updateAbilityButton(){
+ const b=$('abilityBtn');if(!b)return;
+ if(abilityCooldown>0){b.disabled=true;b.textContent='⏳ POWER '+Math.ceil(abilityCooldown)+'s';}
+ else{b.disabled=false;b.textContent='✨ USE '+(chars.find(x=>x.id===charId).ability.toUpperCase());}
+}
+$('abilityBtn').onclick=activateAbility;
+$('sound').onclick=()=>{soundOn=!soundOn;$('sound').textContent=soundOn?'🔊':'🔇';toast(soundOn?'Sound on':'Sound off')};
+$('pause').onclick=()=>{if(mode==='run'){mode='paused';$('pause').textContent='▶';toast('Paused')}else if(mode==='paused'){mode='run';$('pause').textContent='Ⅱ';last=performance.now();requestAnimationFrame(loop)}};
+function spawnObj(){
+ let r=Math.random(),ln=Math.floor(Math.random()*3),y=-70;
+ if(r<.36){objects.push({type:'coin',lane:ln,y,got:false})}
+ else if(r<.49){objects.push({type:'bike',lane:ln,y})}
+ else if(r<.62){objects.push({type:'car',lane:ln,y})}
+ else if(r<.69){objects.push({type:'taxi',lane:ln,y})}
+ else if(r<.76){objects.push({type:'auto',lane:ln,y})}
+ else if(r<.82){objects.push({type:'bus',lane:ln,y})}
+ else if(r<.87){objects.push({type:'tram',lane:ln,y})}
+ else if(r<.93){objects.push({type:'barrier',lane:ln,y})}
+ else if(r<.97){objects.push({type:'train',lane:ln,y,rail:true});toast('🚦 Railway crossing ahead! Jump over the crossing!');sfx('train')}
+ else{objects.push({type:'power',lane:ln,y})}
+}
+function drawRunner(x,y){let c=chars.find(v=>v.id===charId);ctx.save();ctx.translate(x,y);let bob=Math.sin(performance.now()/90)*2;
+ctx.fillStyle='#0005';ctx.beginPath();ctx.ellipse(0,5,22,7,0,0,Math.PI*2);ctx.fill();
+ctx.fillStyle=c.color;ctx.beginPath();ctx.arc(0,-48+bob,13,0,Math.PI*2);ctx.fill();ctx.fillStyle='#2b1c18';ctx.beginPath();ctx.arc(-2,-54+bob,13,Math.PI,Math.PI*2);ctx.fill();
+ctx.fillStyle=c.accent;ctx.beginPath();ctx.moveTo(-13,-31+bob);ctx.lineTo(13,-31+bob);ctx.lineTo(17,0);ctx.lineTo(-17,0);ctx.closePath();ctx.fill();
+let stride=Math.sin(performance.now()/85)*8;
+ctx.strokeStyle=c.color;ctx.lineWidth=7;ctx.lineCap='round';ctx.beginPath();
+ctx.moveTo(-12,-25+bob);ctx.lineTo(-18-stride*.45,-12+bob);
+ctx.moveTo(12,-25+bob);ctx.lineTo(18+stride*.45,-12+bob);ctx.stroke();
+ctx.strokeStyle='#f0c69b';ctx.lineWidth=5;ctx.beginPath();
+ctx.moveTo(-8,0);ctx.lineTo(-12-stride,8+Math.max(0,stride*.3));
+ctx.moveTo(8,0);ctx.lineTo(12+stride,8+Math.max(0,-stride*.3));ctx.stroke();
+ctx.fillStyle='#fff';ctx.font='12px sans-serif';ctx.textAlign='center';ctx.fillText(c.symbol,0,-72+bob);
+if(rideId==='board'||rideId==='wheel'||rideId==='shoes'||rideId==='boots'){
+ ctx.save();ctx.translate(0,10);ctx.fillStyle=rideId==='board'?'#e36c42':rideId==='wheel'?'#45c7d7':'#f2c34e';
+ if(rideId==='wheel'){ctx.beginPath();ctx.arc(0,0,10,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#24374b';ctx.lineWidth=2;ctx.stroke()}
+ else {ctx.fillRect(-22,-3,44,6);ctx.fillStyle='#26344a';ctx.beginPath();ctx.arc(-14,5,4,0,Math.PI*2);ctx.arc(14,5,4,0,Math.PI*2);ctx.fill()}
+ ctx.restore();
+}
+if(rideId!=='none'&&shield>0){ctx.strokeStyle='#8de8ff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,-25,31,0,Math.PI*2);ctx.stroke()}
+ctx.restore()}
+function draw(){ctx.clearRect(0,0,W,H);let sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#78c7e8');sky.addColorStop(.52,'#f7c77a');sky.addColorStop(1,'#e78b50');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+// Kolkata skyline and signature landmarks, drawn in a compact 2.5D style.
+ctx.fillStyle='#b96f55';
+for(let i=0;i<10;i++){
+ let x=i*W/9-8,bh=H*(.12+(i%3)*.035);
+ ctx.fillRect(x,H*.31-bh,W*.085,bh);
+ ctx.fillStyle='#ffe0a0';
+ for(let wy=H*.31-bh+12;wy<H*.30;wy+=19)for(let wx=x+8;wx<x+W*.07;wx+=17)ctx.fillRect(wx,wy,7,9);
+ ctx.fillStyle='#b96f55';
+}
+// Howrah Bridge-like steel cantilever silhouette in the far background.
+ctx.save();ctx.globalAlpha=.82;ctx.strokeStyle='#5b6871';ctx.lineWidth=Math.max(3,W*.008);
+ctx.beginPath();ctx.moveTo(W*.04,H*.29);ctx.lineTo(W*.96,H*.29);ctx.stroke();
+for(let bx of [W*.20,W*.77]){
+ ctx.beginPath();ctx.moveTo(bx-W*.055,H*.29);ctx.lineTo(bx,H*.105);ctx.lineTo(bx+W*.055,H*.29);ctx.stroke();
+ ctx.beginPath();ctx.moveTo(bx-W*.045,H*.19);ctx.lineTo(bx+W*.045,H*.19);ctx.stroke();
+}
+for(let i=0;i<15;i++){let x=W*.05+i*W*.064;ctx.beginPath();ctx.moveTo(x,H*.29);ctx.lineTo(x,H*.22-(i%2)*H*.025);ctx.stroke()}
+ctx.restore();
+// Victoria Memorial-inspired dome and wings, placed in the distant skyline.
+ctx.fillStyle='#e7e1d0';ctx.fillRect(W*.39,H*.235,W*.22,H*.065);
+ctx.beginPath();ctx.ellipse(W*.50,H*.235,W*.055,H*.035,0,Math.PI,Math.PI*2);ctx.fill();
+ctx.fillRect(W*.485,H*.175,W*.03,H*.06);
+ctx.beginPath();ctx.arc(W*.50,H*.17,W*.012,0,Math.PI*2);ctx.fill();
+// Tram overhead wires and poles.
+ctx.strokeStyle='#fff1c2';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,H*.245);ctx.lineTo(W,H*.245);ctx.stroke();
+for(let i=0;i<7;i++){let x=i*W/6;ctx.strokeStyle='#8c5b45';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,H*.19);ctx.lineTo(x,H*.42);ctx.stroke()}
+ctx.strokeStyle='#e7d6a4';ctx.lineWidth=2;for(let i=0;i<7;i++){ctx.beginPath();ctx.moveTo(i*W/6,H*.22);ctx.lineTo(i*W/6+W/12,H*.30);ctx.stroke()}
+ctx.fillStyle='#d9a52f';ctx.fillRect(W*.04,H*.24,Math.max(44,W*.13),22);ctx.fillStyle='#26344a';ctx.font='bold 11px sans-serif';ctx.fillText('KOLKATA',W*.055,H*.255);
+let r=road();ctx.fillStyle='#47505b';ctx.beginPath();ctx.moveTo(r.left,H*.28);ctx.lineTo(r.right,H*.28);ctx.lineTo(W*.99,H);ctx.lineTo(W*.01,H);ctx.closePath();ctx.fill();
+ctx.strokeStyle='#f9e6ad';ctx.lineWidth=3;for(let i=1;i<3;i++){let x=r.left+r.width*i/3;ctx.beginPath();ctx.moveTo(x,H*.28);ctx.lineTo(W/2+(x-W/2)*2.7,H);ctx.stroke()}
+// Subtle tram rails run down the centre lane.
+ctx.strokeStyle='#b9c5c9';ctx.lineWidth=2;
+for(let dx of [-W*.035,W*.035]){ctx.beginPath();ctx.moveTo(W*.5+dx*.45,H*.29);ctx.lineTo(W*.5+dx*2.4,H);ctx.stroke()}
+ctx.strokeStyle='#ffffff66';ctx.lineWidth=4;ctx.setLineDash([20,24]);ctx.lineDashOffset=-(score*2%44);ctx.beginPath();ctx.moveTo(r.left,H*.28);ctx.lineTo(r.right,H*.28);ctx.stroke();ctx.setLineDash([]);
+ctx.fillStyle='#fff4d6';ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.fillText('LEFT LANE     CENTRE LANE     RIGHT LANE',W*.5,H*.265);
+objects.forEach(o=>{
+ let x=laneX(o.lane)+Math.sin(performance.now()/260+(o.y/60))*((o.type==='bike'||o.type==='auto')?3:1),scale=.5+o.y/H*.7;
+ if(o.type==='coin'){ctx.fillStyle='#ffda47';ctx.beginPath();ctx.arc(x,o.y,10*scale,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#fff2a6';ctx.lineWidth=3;ctx.stroke()}
+ else if(o.type==='power'){ctx.fillStyle='#8bf0d5';ctx.fillRect(x-12*scale,o.y-15*scale,24*scale,30*scale);ctx.fillStyle='#164c5a';ctx.font=`${17*scale}px sans-serif`;ctx.textAlign='center';ctx.fillText('⚡',x,o.y+6*scale)}
+ else if(o.type==='train'){
+   ctx.fillStyle='#d94b45';ctx.fillRect(x-34*scale,o.y-34*scale,68*scale,68*scale);
+   ctx.fillStyle='#ffe7bd';ctx.fillRect(x-25*scale,o.y-23*scale,50*scale,18*scale);
+   ctx.fillStyle='#17243b';ctx.fillRect(x-28*scale,o.y+19*scale,56*scale,8*scale);
+   ctx.fillStyle='#fff';ctx.font=`bold ${9*scale}px sans-serif`;ctx.textAlign='center';ctx.fillText('LOCAL TRAIN',x,o.y+4*scale);
+   // flashing railway crossing arms on both sides of the track
+   ctx.strokeStyle='#fff';ctx.lineWidth=6*scale;ctx.beginPath();ctx.moveTo(x-55*scale,o.y-39*scale);ctx.lineTo(x+55*scale,o.y-15*scale);ctx.stroke();
+   ctx.strokeStyle='#e34b3f';ctx.lineWidth=3*scale;ctx.setLineDash([9*scale,7*scale]);ctx.beginPath();ctx.moveTo(x-55*scale,o.y-39*scale);ctx.lineTo(x+55*scale,o.y-15*scale);ctx.stroke();ctx.setLineDash([]);
+   ctx.fillStyle='#ffed67';ctx.beginPath();ctx.arc(x-57*scale,o.y-42*scale,5*scale,0,Math.PI*2);ctx.arc(x+57*scale,o.y-18*scale,5*scale,0,Math.PI*2);ctx.fill();
+ }else{
+   let body=o.type==='taxi'?'#f4c542':o.type==='auto'?'#20a66a':o.type==='bus'?'#e2a63b':o.type==='tram'?'#3d9a83':o.type==='bike'?'#3bb7a5':'#e8e9ec';
+   if(o.type==='auto'){
+     ctx.fillStyle='#172638';ctx.fillRect(x-22*scale,o.y-20*scale,44*scale,40*scale);
+     ctx.fillStyle=body;ctx.beginPath();ctx.moveTo(x-20*scale,o.y+17*scale);ctx.lineTo(x-17*scale,o.y-12*scale);ctx.lineTo(x+13*scale,o.y-20*scale);ctx.lineTo(x+21*scale,o.y+17*scale);ctx.closePath();ctx.fill();
+     ctx.fillStyle='#bde9ef';ctx.fillRect(x-10*scale,o.y-12*scale,19*scale,13*scale);
+     ctx.fillStyle='#f4d24f';ctx.fillRect(x-16*scale,o.y+13*scale,7*scale,4*scale);ctx.fillRect(x+10*scale,o.y+13*scale,7*scale,4*scale);
+   }else if(o.type==='bus'||o.type==='tram'){
+     ctx.fillStyle='#26344a';ctx.fillRect(x-25*scale,o.y-29*scale,50*scale,58*scale);
+     ctx.fillStyle=body;ctx.fillRect(x-22*scale,o.y-27*scale,44*scale,54*scale);
+     ctx.fillStyle='#a9deea';for(let wx=-16;wx<=10;wx+=13)ctx.fillRect(x+wx*scale,o.y-19*scale,9*scale,14*scale);
+     ctx.fillStyle='#fff1c2';ctx.fillRect(x-16*scale,o.y+7*scale,32*scale,8*scale);
+     ctx.fillStyle='#26344a';ctx.font=`bold ${8*scale}px sans-serif`;ctx.textAlign='center';ctx.fillText(o.type==='tram'?'TRAM':'BUS',x,o.y+13*scale);
+     if(o.type==='tram'){ctx.strokeStyle='#28394b';ctx.lineWidth=2*scale;ctx.beginPath();ctx.moveTo(x,o.y-28*scale);ctx.lineTo(x,o.y-39*scale);ctx.stroke()}
+   }else if(o.type==='bike'){
+     ctx.strokeStyle='#182638';ctx.lineWidth=3*scale;ctx.beginPath();ctx.arc(x-10*scale,o.y+12*scale,8*scale,0,Math.PI*2);ctx.arc(x+11*scale,o.y+12*scale,8*scale,0,Math.PI*2);ctx.stroke();
+     ctx.strokeStyle=body;ctx.lineWidth=5*scale;ctx.beginPath();ctx.moveTo(x-10*scale,o.y+12*scale);ctx.lineTo(x-2*scale,o.y-7*scale);ctx.lineTo(x+11*scale,o.y+12*scale);ctx.lineTo(x+5*scale,o.y-5*scale);ctx.stroke();
+     ctx.fillStyle='#26344a';ctx.beginPath();ctx.arc(x,o.y-12*scale,5*scale,0,Math.PI*2);ctx.fill();
+   }else{
+     ctx.fillStyle='#26344a';ctx.fillRect(x-24*scale,o.y-22*scale,48*scale,46*scale);
+     ctx.fillStyle=body;ctx.fillRect(x-20*scale,o.y-24*scale,40*scale,43*scale);
+     ctx.fillStyle='#9ed9e8';ctx.fillRect(x-14*scale,o.y-17*scale,28*scale,13*scale);
+     ctx.fillStyle='#fff4c8';ctx.fillRect(x-17*scale,o.y+12*scale,8*scale,5*scale);ctx.fillRect(x+9*scale,o.y+12*scale,8*scale,5*scale);
+     if(o.type==='taxi'){ctx.fillStyle='#202a39';ctx.font=`bold ${8*scale}px sans-serif`;ctx.textAlign='center';ctx.fillText('TAXI',x,o.y+6*scale)}
+   }
+ }
+});
+// A helicopter passes overhead now and then; its spotlight marks a bonus trail, not a collision hazard.
+let heliX=((performance.now()/18)%(W+180))-90,heliY=H*.16+Math.sin(performance.now()/420)*8;
+ctx.save();ctx.translate(heliX,heliY);ctx.fillStyle='#25384d';ctx.beginPath();ctx.ellipse(0,0,25,10,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#a9e2ed';ctx.fillRect(-8,-7,15,7);ctx.strokeStyle='#25384d';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(-35,-14);ctx.lineTo(35,-14);ctx.moveTo(20,0);ctx.lineTo(39,5);ctx.stroke();ctx.restore();
+let y=H*.78-(jump>0?Math.sin((1-jump/(chars.find(x=>x.id===charId).id==='scotland'?1.25:.85))*Math.PI)*H*.17:0);drawRunner(laneX(lane),y);
+if(shield>0){ctx.fillStyle='#8de8ff';ctx.font='bold 13px sans-serif';ctx.textAlign='center';ctx.fillText('SHIELD',laneX(lane),y-94)}
+}
+function end(){mode='over';if(missionDone)runCoins+=missionReward;bank+=runCoins;best=Math.max(best,Math.floor(score));persist();hud();$('menu').classList.remove('hidden');$('home').innerHTML=`<h1>RUN OVER!</h1><p class="sub">Great run! Every run helps you unlock more of the world.</p><div class="grid"><div class="item"><strong>⭐ ${Math.floor(score)}</strong><small>Distance score</small></div><div class="item"><strong>🪙 +${runCoins}</strong><small>Coins collected</small></div><div class="item"><strong>🏆 ${best}</strong><small>Best score</small></div><div class="item"><strong>🪙 ${bank}</strong><small>Total wallet</small></div></div><div class="row"><button class="btn" id="again">↻ RUN AGAIN</button><button class="btn alt" id="garage">🛹 SHOP</button><button class="btn alt" id="homebtn">⌂ HOME</button></div>`;$('again').onclick=start;$('garage').onclick=()=>{mode='menu';panel('RIDE GARAGE','Unlock a ride for your next run.',rides,'ride')};$('homebtn').onclick=showHome;$('hud').classList.add('hidden');$('mission').classList.add('hidden');$('abilityBtn').classList.add('hidden');$('touch').classList.add('hidden');$('pause').classList.add('hidden');$('sound').classList.add('hidden')}
+function loop(t){if(mode!=='run')return;let dt=Math.min((t-last)/1000,.035);last=t;score+=dt*speed/15*(quickStep>0?1.5:1);speed=Math.min(quickStep>0?900:760,speed+dt*(quickStep>0?8:5));spawn-=dt;if(spawn<=0){spawnObj();spawn=Math.max(.42,1.02-(speed-390)/650)+Math.random()*.25}
+if(jump>0)jump=Math.max(0,jump-dt);if(slide>0)slide=Math.max(0,slide-dt);if(shield>0)shield=Math.max(0,shield-dt);if(magnet>0)magnet=Math.max(0,magnet-dt);if(ability>0)ability=Math.max(0,ability-dt);if(abilityCooldown>0)abilityCooldown=Math.max(0,abilityCooldown-dt);if(quickStep>0)quickStep=Math.max(0,quickStep-dt);if(doubleCoins>0)doubleCoins=Math.max(0,doubleCoins-dt);if(longJump>0)longJump=Math.max(0,longJump-dt);updateAbilityButton();
+objects.forEach(o=>o.y+=speed*dt);let runnerY=H*.78;
+objects=objects.filter(o=>{if(o.y>H+60)return false;let near=Math.abs(o.y-runnerY)<35&&o.lane===lane;
+if(o.type==='coin'&&!o.got&&(near||(magnet>0&&Math.abs(o.y-runnerY)<115))){o.got=true;runCoins+=(doubleCoins>0?2:1);sfx('coin');if(!missionDone&&runCoins>=missionTarget){missionDone=true;toast('🎯 Mission complete! +40 bonus coins at finish');}hud();return false}
+if(o.type==='power'&&near){shield=Math.max(shield,rideId==='board'?8:rideId==='wheel'?9:3);magnet=Math.max(magnet,4);sfx('power');toast('Power-up collected!');return false}
+if((o.type==='barrier'||o.type==='train')&&near){let avoided=jump>0||(slide>0&&o.type==='barrier')||shield>0;if(!avoided){sfx(o.type==='train'?'train':'crash');end();return false}if(shield>0)shield=Math.max(0,shield-1.2);return false}return true});
+if(mode==='run'){draw();hud();requestAnimationFrame(loop)}}
+draw();showHome();
+})();
+</script>
+</body></html>
